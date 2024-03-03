@@ -31,13 +31,13 @@ options.loadnativereco = 1; % Load native reco intead of scrf
 options.xray=0;
 setappdata(mcfig,'options',options);
 
-if ~exist([options.root,options.patientname,filesep,'ea_reconstruction.mat'],'file')
+if ~isfile(options.subj.recon.recon)
     close(mcfig);
     msgbox('Please run pre-Reconstruct module first.');
     return
 end
 
-[coords_mm,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
+[~,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
 
 setappdata(mcfig,'origtrajectory',trajectory);
 setappdata(mcfig,'manually_corrected',manually_corrected);
@@ -86,6 +86,7 @@ eltog(2)=uitoggletool(ht,'CData',ea_get_icn('el3'),'TooltipString','Select proxi
 % rotleftcw=uipushtool(ht,'CData',ea_get_icn('rotleftcw'),'TooltipString','Rotate left lead clockwise','ClickedCallback',{@ea_rotate,'lc',mcfig});
 % rotleftccw=uipushtool(ht,'CData',ea_get_icn('rotleftccw'),'TooltipString','Rotate left lead counterclockwise','ClickedCallback',{@ea_rotate,'lcc',mcfig});
 autorotation=uipushtool(ht,'CData',ea_get_icn('autorot'),'TooltipString','Detect directional leads','ClickedCallback',{@ea_autorotate,'clockwise',mcfig});
+manualrotation=uipushtool(ht,'CData',ea_get_icn('manualrot'),'TooltipString','Detect directional leads','ClickedCallback',{@ea_manualrotate,'clockwise',mcfig});
 rotationcw=uipushtool(ht,'CData',ea_get_icn('cw'),'TooltipString','Rotate lead clockwise','ClickedCallback',{@ea_rotate,'clockwise',mcfig});
 rotationccw=uipushtool(ht,'CData',ea_get_icn('ccw'),'TooltipString','Rotate lead counterclockwise','ClickedCallback',{@ea_rotate,'counterclockwise',mcfig});
 
@@ -156,8 +157,12 @@ ea_methods(options,...
     {'Horn, A., & Kuehn, A. A. (2015). Lead-DBS: a toolbox for deep brain stimulation electrode localizations and visualizations. NeuroImage, 107, 127?135. http://doi.org/10.1016/j.neuroimage.2014.12.002'});
 
 % continue with rest of the program schedule..
-
-ea_write(options);
+if options.d2.write || options.d3.write
+    if options.atl.genpt % generate patient specific atlas set
+        ea_ptspecific_atl(options);
+    end
+    ea_write(options);
+end
 
 
 % Callback invoked when user presses the 'Update all' button in the 'Manual electrodes head / tail setting' figure.
@@ -249,7 +254,7 @@ options=getappdata(mcfig,'options');
 if ~isfield(options,'visible')
     options.visible=1;
 end
-if ~exist([options.root,options.patientname,filesep,'ea_reconstruction.mat'],'file')
+if  ~isfile(options.subj.recon.recon)
     close(mcfig);
     return
 end
@@ -546,8 +551,6 @@ switch what
         end
 end
 
-%setappdata(mcfig,'trajectory',trajectory);
-
 
 function sp=getsuplots(sides)
 if isequal(sides,[1:2])
@@ -557,7 +560,6 @@ elseif isequal(sides,1)
 elseif isequal(sides,2)
     sp=3:4;
 end
-%setappdata(mcfig,['C',ID,addon],C);
 
 
 function markers=moveonecoord(markers,selectrode,command,options)
@@ -623,6 +625,16 @@ figure(mcfig);
 setappdata(gcf,'rotation',rotation);
 ea_mancor_updatescene([],[],mcfig);
 
+function ea_manualrotate(hobj,ev,ccw,mcfig)
+options = getappdata(gcf,'options');
+rotation=getappdata(gcf,'rotation'); % rotation angle in degrees
+orientation = ea_diode_manual_main(options);
+if ~isempty(orientation)
+    rotation{options.elside} = orientation;
+end
+figure(mcfig);
+setappdata(gcf,'rotation',rotation);
+ea_mancor_updatescene([],[],mcfig);
 
 function setcontrast(hobj,ev,key,modifier,mcfig)
 % c_lims=getappdata(gcf,'c_lims');

@@ -1,6 +1,5 @@
 function out=ea_query_sim_connectomematrix(seedmap,connectomename,outputfname)
-
-
+% Function to create invert map as used in Li & Hollunder 2021 Biol. Psychiatry
 
 s=ea_load_nii(seedmap);
 seed=s.img(:);
@@ -8,9 +7,9 @@ out=s;
 out.fname=outputfname;
 
 C=matfile([ea_space([],'connectomes'),'fMRI',filesep,connectomename,filesep,'AllX.mat'],'Writable',false);
-ds=load([ea_space([],'connectomes'),'fMRI',filesep,connectomename,filesep,'dataset_info.mat']);
+dataset=load([ea_space([],'connectomes'),'fMRI',filesep,connectomename,filesep,'dataset_volsurf.mat']);
 
-ix=ds.dataset.vol.outidx;
+ix=dataset.vol.outidx;
 
 chunk=10000;
 ea_dispercent(0,'Iterating connectome');

@@ -1,9 +1,10 @@
 function space=ea_getspace
 
-%prefs=ea_prefs('');
-home = ea_gethome;
-if ~exist([home,'.ea_prefs.mat'], 'file')
-    copyfile([ea_getearoot,'common',filesep,'ea_prefs_default.mat'], [home,'.ea_prefs.mat'], 'f');
+prefsPath = ea_prefspath('mat');
+
+if ~isfile(prefsPath)
+    copyfile([ea_getearoot,'common',filesep,'ea_prefs_default.mat'], prefsPath, 'f');
 end
-load([home,'.ea_prefs.mat']);
+
+load(prefsPath, 'machine');
 space = machine.space;

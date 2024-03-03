@@ -1,14 +1,12 @@
 function ea_menu_initmenu(handles,cmd,prefs)
 
-callingfunction=dbstack;
-callingfunction=callingfunction(4).name;
 menuprobe=getappdata(handles.leadfigure,'menuprobe');
 if isempty(menuprobe)
     % tools menu  & edit prefs present in all apps.
     f = uimenu('Label','Tools');
     pp= uimenu('Label','Preferences');
     uimenu(pp,'Label','Edit Preferences File...','Callback',{@ea_editprefs},'Accelerator','P');
-    uimenu(pp,'Label','Reset Preferences to Default...','Callback',{@ea_restoreprefs});
+    uimenu(pp,'Label','Reset Preferences to Default...','Callback',{@(src, evt) ea_restoreprefs});
 
     p_c=uimenu(pp,'Label','Play sound on completed tasks.','Callback',{@ea_toggle_chirp});
     if prefs.machine.chirp
@@ -24,7 +22,6 @@ if isempty(menuprobe)
         m_c.Checked='off';
     end
 
-
     if ismember('checkregfigs',cmd)
         cr=uimenu(f,'Label','Checkreg');
         uimenu(cr,'Label','Generate Checkreg figures','Callback',{@ea_gencheckreg,handles});
@@ -32,10 +29,10 @@ if isempty(menuprobe)
         uimenu(cr,'Label','Aggregate all checkreg images for selected patient(s) to folder...','Callback',{@ea_aggregate,handles,'allcheckreg'});
         uimenu(cr,'Label','Aggregate most recent normalization checkreg images for selected patient(s) to folder...','Callback',{@ea_aggregate,handles,'normcheckreg'});
     end
+
     if ismember('group',cmd)
        cr=uimenu(f,'Label','Group Tools');
        uimenu(cr,'Label','Check for outliers in localizations','Callback',{@ea_checkoutliers,handles});
-       uimenu(cr,'Label','Rebase root directory of patient folders...','Callback',{@ea_rebasegrouppts,handles});
     end
 
     if ismember('acpc',cmd)
@@ -47,6 +44,10 @@ if isempty(menuprobe)
     uimenu(normf,'Label','Flatten fiducial helpers for selected patients','Callback',{@ea_flattenfiducialhelpers,handles})
     uimenu(normf,'Label','Delete fiducial helpers for selected patients','Callback',{@ea_deletefiducialhelpers,handles})
 
+    uimenu(f,'Label','Run THOMAS for T1w/WMn/FGATIR','Callback',{@(~, ~) ea_thomas_menu(handles)});
+
+    uimenu(f,'Label','Run DBSegment for T1w','Callback',{@(~, ~) ea_dbsegment_menu(handles)});
+
     uimenu(f,'Label','Show processing report','Callback',{@ea_showprocessreport,handles},'Accelerator','R');
 
     uimenu(f,'Label','Fuse volumes','Callback',{@ea_waveletfusion,handles});
@@ -54,9 +55,14 @@ if isempty(menuprobe)
     uimenu(f,'Label','Clean folders from unnecessary/legacy files','Callback',{@ea_cleanlegacy,handles});
 
     uimenu(f,'Label','Calculate SNR ratio for selected subjects','Callback',{@ea_run_SNR,handles});
+
     uimenu(f,'Label','Anonymize files for selected subjects','Callback',{@ea_run_deface,handles});
-        
+
     uimenu(f,'Label','Read in stimulation settings from move.base','Callback',{@ea_import_movebase_stimsettings,handles});
+    if ismember('leador',cmd)
+        dbs=uimenu(f,'Label','Lead-OR');
+        uimenu(dbs,'Label','Create OR Scene','Callback',{@ea_leador_create_or_scene,handles});
+    end
 
     if ismember('dbs',cmd)
         dbs=uimenu(f,'Label','DBS');
@@ -108,6 +114,10 @@ if isempty(menuprobe)
         uimenu(backwd,'Label','Run...','Callback',{@ea_applynormtofile_menu,handles,1,0,0,0},'Accelerator','Y');
         uimenu(backwd,'Label','Export Code...','Callback',{@ea_gencode_applynormtofile_menu,handles,1,0,0,0});
 
+        backwdspace=uimenu(backwd,'Label','Select target resolution...');
+        uimenu(backwdspace,'Label','Run...','Callback',{@ea_applynormtofile_menu,handles,1,0,0,0,0,0,1});
+        uimenu(backwdspace,'Label','Export Code...','Callback',{@ea_gencode_applynormtofile_menu,handles,1,0,0,0,0,0,1});
+
         uimenu(f,'Label','Map file from untouched anchor space to template...','Callback',{@ea_applynormtofile_menu,handles,0,1});
         uimenu(f,'Label','Map file from template to untouched anchor space...','Callback',{@ea_applynormtofile_menu,handles,1,1});
         uimenu(f,'Label','Export NII of overlay (template space) in untouched anchor space...','Callback',{@ea_applynormtofile_menu,handles,1,1,1,0});
@@ -128,7 +138,7 @@ if isempty(menuprobe)
 
 
     if ismember('transfer',cmd)
-       ea_menu_addtransfer(handles,callingfunction,prefs);
+       ea_menu_addtransfer(handles,prefs);
     end
 
     if ismember('vats',cmd)
@@ -141,18 +151,22 @@ if isempty(menuprobe)
     for l=1:length(list)
         if isa([list{l}], 'char')
             insit(l) = uimenu(g,'Label',[list{l}],'Callback',{@ea_menuinstall,commands{l}});
-            insit(l).Checked = ea_checkinstall(commands{l},1,0,prefs);
+            if isdeployed && strcmp(commands{l}, 'hotfix')
+                % Disable hotfix for compiled app
+                insit(l).Checked = 'off';
+                insit(l).Enable = 'off';
+            elseif ismember(commands{l}, {'fixperm', 'leaddata', 'hotfix', 'pyenv'})
+                insit(l).Checked = 'off';
+                insit(l).Enable = 'on';
+            else
+                insit(l).Checked = ea_checkinstall(commands{l},1,0,prefs);
+            end
         else % cell. create menu in above item
             insit(l-1).Callback = [];
             for j = 1:length(list{l})
                 m = uimenu(insit(l-1),'Label',[list{l}{j}],'Callback',{@ea_menuinstall,commands{l}{j}});
                 m.Checked = ea_checkinstall(commands{l}{j},1);
             end
-        end
-        % disable for compiled app
-        if isdeployed && any(strcmp(insit(l).Text,{'Install development version of Lead'}))
-            insit(l).Checked = 'off';
-            insit(l).Enable = 'off';
         end
     end
 

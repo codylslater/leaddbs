@@ -22,7 +22,7 @@ function varargout = lead_group(varargin)
 
 % Edit the above text to modify the response to help lead_group
 
-% Last Modified by GUIDE v2.5 13-Nov-2020 13:22:10
+% Last Modified by GUIDE v2.5 23-Feb-2023 11:08:23
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -52,8 +52,11 @@ function lead_group_OpeningFcn(hObject, eventdata, handles, varargin)
 % handles    structure with handles and user data (see GUIDATA)
 % varargin   command line arguments to lead_group (see VARARGIN)
 
-% add recent groups...
-ea_initrecentpatients(handles, 'groups');
+handles.prod='group';
+handles.callingfunction='lead_group';
+
+% add recentgroups groups...
+ea_initrecent(handles, 'groups');
 
 % Choose default command line output for lead_group
 handles.output = hObject;
@@ -83,26 +86,12 @@ if defix
 end
 
 % setup vat functions
-cnt=1;
-ndir=dir([options.earoot,'ea_genvat_*.m']);
-for nd=length(ndir):-1:1
-    [~,methodf]=fileparts(ndir(nd).name);
-    try
-        [thisndc]=eval([methodf,'(','''prompt''',')']);
-        ndc{cnt}=thisndc;
-        genvatfunctions{cnt}=methodf;
-        cnt=cnt+1;
-    end
-end
+funcs = ea_regexpdir(ea_getearoot, 'ea_genvat_.*\.m$', 0);
+funcs = regexp(funcs, '(ea_genvat_.*)(?=\.m)', 'match', 'once');
+names = cellfun(@(x) eval([x, '(''prompt'');']), funcs, 'Uni', 0);
 
-if ~options.prefs.env.dev
-    ossdbsInd = find(contains(ndc,'OSS-DBS'));
-    genvatfunctions(ossdbsInd) = [];
-    ndc(ossdbsInd) = [];
-end
-
-setappdata(handles.leadfigure,'genvatfunctions',genvatfunctions);
-setappdata(handles.leadfigure,'vatfunctionnames',ndc);
+setappdata(handles.leadfigure,'genvatfunctions',funcs);
+setappdata(handles.leadfigure,'vatfunctionnames',names);
 
 % set background image
 set(gcf,'color','w');
@@ -154,19 +143,18 @@ if options.prefs.env.dev
     set(handles.mercheck,'Visible','on')
 end
 
-if ~isempty(varargin) && isfile(varargin{1}) % Path to group analysis file provided as input
+if ~isempty(varargin) && isfile(GetFullPath(varargin{1})) % Path to group analysis file provided as input
     groupFilePath = GetFullPath(varargin{1});
     load(groupFilePath, 'M');
-    M.ui.groupdir = [fileparts(groupFilePath), filesep];
-    M.root = M.ui.groupdir;
-    set(handles.groupdir_choosebox,'String',M.ui.groupdir);
-    set(handles.groupdir_choosebox,'TooltipString', M.ui.groupdir);
+    M.root = [fileparts(groupFilePath), filesep];
+    set(handles.groupdir_choosebox,'String',M.root);
+    set(handles.groupdir_choosebox,'TooltipString', M.root);
     setappdata(handles.leadfigure, 'M', M);
     try
         setappdata(handles.leadfigure, 'S', M.S);
         setappdata(handles.leadfigure, 'vatmodel', M.S(1).model);
     end
-    ea_addrecentpatient(handles,{M.root},'groups','groups');
+    ea_addrecent(handles,{M.root},'groups');
 else
     M=getappdata(gcf,'M');
     if isempty(M)
@@ -176,9 +164,10 @@ else
 end
 
 setappdata(gcf,'M',M);
+setappdata(handles.leadfigure, 'options', options);
+
 ea_refresh_lg(handles);
 
-handles.prod='group';
 ea_firstrun(handles,options);
 
 ea_menu_initmenu(handles,{'prefs','transfer','group'},options.prefs);
@@ -189,13 +178,18 @@ ea_bind_dragndrop(handles.leadfigure, ...
     @(obj,evt) DropFcn(obj,evt,handles), ...
     @(obj,evt) DropFcn(obj,evt,handles));
 
+ea_ListBoxRenderer(handles.recentgroups);
+ea_ListBoxRenderer(handles.atlassetpopup);
+ea_ListBoxRenderer(handles.labelpopup);
+ea_ListBoxRenderer(handles.fiberspopup);
+
 
 % --- Drag and drop callback to load patdirs.
 function DropFcn(~, event, handles)
 
 % check if dropping area is in patient listbox
-if event.Location.getX < 325 && event.Location.getX > 24 && ...
-   event.Location.getY < 322 && event.Location.getY > 137
+if event.Location.getX < 326 && event.Location.getX > 23 && ...
+   event.Location.getY < 326 && event.Location.getY > 139
     target = 'patientList';
 else
     target = 'groupDir';
@@ -210,53 +204,118 @@ end
 
 if strcmp(target, 'groupDir')
     % Save data for previous selected group folder
-    if ~strcmp(get(handles.groupdir_choosebox,'String'),'Choose Group Directory') % group dir still not chosen
+    if ~strcmp(handles.groupdir_choosebox.String,'Choose Dataset Directory') % group dir still not chosen
         ea_busyaction('on',handles.leadfigure,'group');
         disp('Saving data...');
         % save M
         ea_refresh_lg(handles);
-        M=getappdata(handles.leadfigure,'M');
+        M = getappdata(handles.leadfigure,'M');
+
         disp('Saving data to disk...');
-        try
-            save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
-        catch
-            warning('Data could not be saved.');
-            keyboard
+        groupAnalysisFile = ea_getGroupAnalysisFile(handles.groupdir_choosebox.String);
+        if ~isempty(groupAnalysisFile)
+            save(groupAnalysisFile, 'M', '-v7.3');
+        else
+            if ~isfolder(handles.groupdir_choosebox.String)
+                ea_cprintf('CmdWinErrors', 'Failed to save the group analysis file. Analysis folder is missing:\n%s\n', handles.groupdir_choosebox.String);
+            else
+                [~, datasetName] = fileparts(fileparts(fileparts(fileparts(erase(handles.groupdir_choosebox.String, filesep + lineBoundary("end"))))));
+                if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+                    ea_cprintf('CmdWinErrors', 'Could not get the group analysis file. Dataset folder name should only contain alphanumeric characters!\n');
+                else
+                    ea_cprintf('CmdWinErrors', 'Could not get the group analysis file.\n')
+                end
+            end
         end
         disp('Done.');
         ea_busyaction('off',handles.leadfigure,'group');
     end
 
+    % Multiple folder dragged or not a proper BIDS folder
     if length(folders) > 1
-        ea_error('To choose the group analysis directory, please drag a single folder into Lead Group!', 'Error', dbstack);
+        ea_error('Please drag either a dataset root folder or a group analysis folder into Lead Group!', simpleStack = 1);
     end
-    if ~exist(folders{1}, 'dir')
-        [pth,fn,ext]=fileparts(folders{1});
 
-        if strcmp(fn,'LEAD_groupanalysis') && strcmp(ext,'.mat') && exist(pth, 'dir')
-            folders{1}=pth;
+    if isfile(folders{1}) % Group analysis file dragged
+        if ~isempty(regexp(folders{1}, ['derivatives\', filesep, 'leadgroup\', filesep, '[^\W_]+\', filesep, 'dataset-[^\W_]+_analysis-[^\W_]+\.mat$'], 'match', 'once'))
+            [~, datasetName] = fileparts(fileparts(fileparts(fileparts(fileparts(folders{1})))));
+            if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+                ea_error(sprintf('Should only contain alphanumeric characters but "%s" provided!\n', datasetName), title = 'Please adapt dataset folder name', simpleStack = 1);
+            end
+            % Group analysis file within dataset folder
+            groupdir = [fileparts(folders{1}), filesep];
+            load(folders{1}, 'M');
+
+            datasetFolder = regexp(groupdir, ['(.*)(?=\', filesep, 'derivatives\', filesep, 'leadgroup)'], 'match', 'once');
+            if isfile(fullfile(datasetFolder, 'miniset.json'))
+                for p = 1:size(M.patient.list,1)
+                    [~, patient_tag] = fileparts(M.patient.list{p});
+                    M.patient.list{p} = fullfile(datasetFolder, 'derivatives', 'leaddbs', patient_tag);
+                end
+                M.root = groupdir;
+                save(folders{1}, 'M')
+            end
+        elseif ~isempty(regexp(folders{1}, ['\', filesep, 'dataset-[^\W_]+_analysis-[^\W_]+\.mat$'], 'match', 'once'))
+            % Orphan group analysis file, will create proper dataset folder
+            [groupdir, analysisFile] = ea_genDatasetFromGroupAnalysis(folders{1});
+            load(analysisFile, 'M');
         else
-            ea_error('To choose the group analysis directory, please drag a single folder into Lead Group!', 'Error', dbstack);
-
+            ea_error('Not a Lead Group Analysis file!', simpleStack = 1);
         end
+    else % Dataset root folder or group analysis folder dragged
+        if ~isfolder(fullfile(folders{1}, 'derivatives')) && ~contains(folders{1}, [filesep, 'derivatives', filesep, 'leadgroup', filesep])
+            % Neither a dataset root folder nor a group analysis folder, try to search for group analysis file
+            analysisFile = ea_regexpdir(folders{1}, '^dataset-[^\W_]+_analysis-[^\W_]+\.mat$', 0);
+            if ~isempty(analysisFile)
+               folders{1} = ea_genDatasetFromGroupAnalysis(analysisFile{1});
+            end
+        end
+
+        % Double check the dataset folder name
+        if isfolder(fullfile(folders{1}, 'derivatives'))
+            % Dataset root folder
+            [~, datasetName] = fileparts(folders{1});
+        elseif contains(folders{1}, [filesep, 'derivatives', filesep, 'leadgroup', filesep])
+            % Group analysis folder
+            [~, datasetName] = fileparts(fileparts(fileparts(fileparts(erase(folders{1}, filesep + lineBoundary("end"))))));
+        else
+            % Empty folder dragged
+            [~, datasetName] = fileparts(folders{1});
+        end
+
+        if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+            ea_error(sprintf('Should only contain alphanumeric characters but "%s" provided!\n', datasetName), title = 'Please adapt dataset folder name', simpleStack = 1);
+        elseif exist('analysisFile', 'var') && isempty(analysisFile)
+            ea_cprintf('CmdWinWarnings', 'Initialize new dataset folder:\n%s\n', folders{1});
+            ea_mkdir(fullfile(folders{1}, 'derivatives', 'leadgroup'));
+        end
+
+        analysisFile = ea_getGroupAnalysisFile(folders{1});
+        if isempty(analysisFile) % Create new analysis file in case not found
+            analysisFile = ea_genGroupAnalysisFile(folders{1});
+        end
+        groupdir = [fileparts(analysisFile), filesep];
+        load(analysisFile, 'M');
+
+        datasetFolder = regexp(groupdir, ['(.*)(?=\', filesep, 'derivatives\', filesep, 'leadgroup)'], 'match', 'once');
+        if isfile(fullfile(datasetFolder, 'miniset.json'))
+            for p = 1:size(M.patient.list,1)
+                [~, patient_tag] = fileparts(M.patient.list{p});
+                M.patient.list{p} = fullfile(datasetFolder, 'derivatives', 'leaddbs', patient_tag);
+            end
+            M.root = groupdir;
+            save(analysisFile, 'M')
+        end
+
     end
 
-    groupdir = [folders{1}, filesep];
     set(handles.groupdir_choosebox, 'String', groupdir);
     set(handles.groupdir_choosebox, 'TooltipString', groupdir);
 
     ea_busyaction('on',handles.leadfigure,'group');
 
-    M=ea_initializeM;
-    M.ui.groupdir = groupdir;
-
-    try % if file already exists, load it (and overwrite M).
-        load([groupdir, 'LEAD_groupanalysis.mat']);
-    catch % if not, store it saving M.
-        save([groupdir, 'LEAD_groupanalysis.mat'],'M','-v7.3');
-    end
-
     setappdata(handles.leadfigure,'M',M);
+
     try
         setappdata(handles.leadfigure,'S',M.S);
         setappdata(handles.leadfigure,'vatmodel',M.S(1).model);
@@ -265,8 +324,8 @@ if strcmp(target, 'groupDir')
     ea_busyaction('off',handles.leadfigure,'group');
     ea_refresh_lg(handles);
 else
-    if strcmp(get(handles.groupdir_choosebox,'String'), 'Choose Group Directory')
-        ea_error('Please choose a group directory first to store the group analysis!', 'Error', dbstack)
+    if strcmp(handles.groupdir_choosebox.String, 'Choose Dataset Directory')
+        ea_error('Please choose a group directory first to store the group analysis!', simpleStack = 1);
     end
 
     nonexist = cellfun(@(x) ~exist(x, 'dir'), folders);
@@ -295,7 +354,7 @@ else
         ea_refresh_lg(handles);
         % save M
         M=getappdata(handles.leadfigure,'M');
-        save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
+        save(ea_getGroupAnalysisFile(handles.groupdir_choosebox.String),'M','-v7.3');
     end
 end
 
@@ -309,6 +368,99 @@ function varargout = lead_group_OutputFcn(hObject, eventdata, handles)
 
 % Get default command line output from handles structure
 varargout{1} = handles.output;
+
+
+% --- Executes on button press in groupdir_choosebox.
+function groupdir_choosebox_Callback(hObject, eventdata, handles)
+% hObject    handle to groupdir_choosebox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Save data for previous selected group folder
+if ~strcmp(handles.groupdir_choosebox.String,'Choose Dataset Directory')
+    ea_busyaction('on',handles.leadfigure,'group');
+    disp('Saving data...');
+    % save M
+    ea_refresh_lg(handles);
+    M=getappdata(handles.leadfigure,'M');
+    disp('Saving data to disk...');
+    groupAnalysisFile = ea_getGroupAnalysisFile(handles.groupdir_choosebox.String);
+    if ~isempty(groupAnalysisFile)
+        save(groupAnalysisFile, 'M', '-v7.3');
+    else
+        if ~isfolder(handles.groupdir_choosebox.String)
+            ea_cprintf('CmdWinErrors', 'Failed to save the group analysis file. Analysis folder is missing:\n%s\n', handles.groupdir_choosebox.String);
+        else
+            [~, datasetName] = fileparts(fileparts(fileparts(fileparts(erase(handles.groupdir_choosebox.String, filesep + lineBoundary("end"))))));
+            if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+                ea_cprintf('CmdWinErrors', 'Could not get the group analysis file. Dataset folder name should only contain alphanumeric characters!\n');
+            else
+                ea_cprintf('CmdWinErrors', 'Could not get the group analysis file.\n')
+            end
+        end
+    end
+    disp('Done.');
+    ea_busyaction('off',handles.leadfigure,'group');
+end
+
+% groupdir=ea_uigetdir(ea_startpath,'Choose Dataset Directory');
+groupdir = uigetdir;
+
+if ~groupdir % user pressed cancel
+    return
+else
+    if ~isfolder(fullfile(groupdir, 'derivatives')) && ~contains(groupdir, ['derivatives', filesep, 'leadgroup', filesep])
+        % Neither a dataset root folder nor a group analysis folder, try to search for group analysis file
+        analysisFile = ea_regexpdir(groupdir, '^dataset-[^\W_]+_analysis-[^\W_]+\.mat$', 0);
+        if ~isempty(analysisFile) % Load group analysis outside of dataset
+            if length(analysisFile) > 1
+                [~, guid] = fileparts(fileparts(analysisFile));
+                index = listdlg('PromptString', 'Select Group Analysis', 'ListString', guid, 'SelectionMode', 'single', 'CancelString', 'Cancel');
+                if ~isempty(index)
+                    analysisFile = analysisFile(index);
+                else
+                    return;
+                end
+            end
+            groupdir = ea_genDatasetFromGroupAnalysis(analysisFile{1});
+        else % initialize group analysis in an empty folder.
+            % Double check the dataset folder name
+            [~, datasetName] = fileparts(groupdir);
+            if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+                ea_error(sprintf('Should only contain alphanumeric characters but "%s" provided!\n', datasetName), title = 'Please adapt dataset folder name', simpleStack = 1);
+            end
+            ea_cprintf('CmdWinWarnings', 'Initialize new dataset folder:\n%s\n', groupdir);
+            ea_mkdir(fullfile(groupdir, 'derivatives', 'leadgroup'));
+        end
+    end
+
+    analysisFile = ea_getGroupAnalysisFile(groupdir);
+    if isempty(analysisFile) % Create new analysis file in case not found
+        % Double check the dataset folder name
+        if isfolder(fullfile(groupdir, 'derivatives'))
+            % Dataset root folder
+            [~, datasetName] = fileparts(groupdir);
+        elseif contains(groupdir, [filesep, 'derivatives', filesep, 'leadgroup', filesep])
+            % Group analysis folder
+            [~, datasetName] = fileparts(fileparts(fileparts(fileparts(erase(groupdir, filesep + lineBoundary("end"))))));
+        else
+            [~, datasetName] = fileparts(groupdir);
+        end
+        if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+            ea_error(sprintf('Should only contain alphanumeric characters but "%s" provided!\n', datasetName), title = 'Please adapt dataset folder name', simpleStack = 1);
+        end
+        analysisFile = ea_genGroupAnalysisFile(groupdir);
+    else
+        % Double check the dataset folder name
+        [~, datasetName] = fileparts(fileparts(fileparts(fileparts(fileparts(analysisFile)))));
+        if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+            ea_error(sprintf('Should only contain alphanumeric characters but "%s" provided!\n', datasetName), title = 'Please adapt dataset folder name', simpleStack = 1);
+        end
+    end
+    groupdir = fullfile(fileparts(analysisFile), filesep);
+end
+
+ea_load_group(handles,groupdir);
 
 
 % --- Executes on selection change in patientlist.
@@ -326,7 +478,6 @@ set(handles.grouplist,'Value',M.ui.listselect);
 
 setappdata(gcf,'M',M);
 ea_refresh_lg(handles);
-
 
 
 % --- Executes during object creation, after setting all properties.
@@ -347,8 +498,8 @@ function addptbutton_Callback(hObject, eventdata, handles)
 % hObject    handle to addptbutton (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-if strcmp(get(handles.groupdir_choosebox,'String'), 'Choose Group Directory')
-    ea_error('Please choose a group directory first to store the group analysis!', 'Error', dbstack)
+if strcmp(handles.groupdir_choosebox.String, 'Choose Dataset Directory')
+    ea_error('Please choose a group directory first to store the group analysis!', simpleStack = 1);
 end
 
 M=getappdata(handles.leadfigure,'M');
@@ -378,7 +529,7 @@ setappdata(handles.leadfigure,'S',M.S);
 ea_refresh_lg(handles);
 % save M
 M=getappdata(handles.leadfigure,'M');
-save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
+save(ea_getGroupAnalysisFile(handles.groupdir_choosebox.String),'M','-v7.3');
 
 
 % --- Executes on button press in removeptbutton.
@@ -427,10 +578,11 @@ ea_busyaction('on',handles.leadfigure,'group');
 % set options
 options=ea_setopts_local(handles);
 options.leadprod = 'group';
-options.groupdir = M.ui.groupdir;
+options.groupdir = M.root;
+
 % set pt specific options
-options.root=[fileparts(fileparts(get(handles.groupdir_choosebox,'String'))),filesep];
-[~,options.patientname]=fileparts(fileparts(get(handles.groupdir_choosebox,'String')));
+[options.root, options.patientname] = fileparts(handles.groupdir_choosebox.String);
+options.root = [options.root, filesep];
 
 options.expstatvat.do=M.ui.statvat;
 options.native=0;
@@ -476,10 +628,10 @@ for reg=1:length(options.d3.isomatrix)
     end
 end
 
-if ~strcmp(get(handles.groupdir_choosebox,'String'),'Choose Group Directory') % group dir still not chosen
+if ~strcmp(handles.groupdir_choosebox.String,'Choose Dataset Directory') % group dir still not chosen
     disp('Saving data...');
     % save M
-    save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
+    save(ea_getGroupAnalysisFile(handles.groupdir_choosebox.String),'M','-v7.3');
     disp('Done.');
 end
 
@@ -513,13 +665,12 @@ npts=length(uipatdirs);
 if options.prefs.env.dev && get(handles.mercheck,'Value')
     filename=fullfile(options.root,options.patientname,'ea_groupvisdata.mat');
     if exist(filename,'file')
-       choice = ea_questdlg(sprintf('Group Data Found. Would you like to load %s now?',filename),...
+       choice = questdlg(sprintf('Group Data Found. Would you like to load %s now?',filename),...
            'Yes','No');
     end
 
     % Get vizstruct
     if ~exist('choice','var') || strcmpi(choice,'No')
-
         for pt=1:length(M.elstruct)
             options.uipatdirs{1}=uipatdirs{pt};
             M.merstruct(pt)=ea_getmerstruct(options);
@@ -549,18 +700,9 @@ if options.prefs.env.dev && get(handles.mercheck,'Value')
 
         save(fullfile(options.root,options.patientname,'ea_groupelvisdata.mat'),...
             'options','vizstruct');
-
     elseif strcmpi(choice,'Yes')
-
         load(filename,'vizstruct')
-
     end
-
-end
-
-% amend .pt to identify which patient is selected (needed for isomatrix).
-for pt=1:length(ptidx)
-    M.elstruct(ptidx(pt)).pt=ptidx(pt);
 end
 
 elmodels = [{'Patient specified'};ea_resolve_elspec];
@@ -877,7 +1019,7 @@ options=ea_setopts_local(handles);
 
 options.groupmode = 1;
 options.groupid = M.guid;
-options.groupdir = M.ui.groupdir;
+options.groupdir = M.root;
 
 if isfield(M.ui, 'stimSetMode') && M.ui.stimSetMode
     options.stimSetMode = 1;
@@ -900,13 +1042,10 @@ end
 
 for pt=selection
     % set pt specific options
-    if M.ui.detached
-        options.patientname = M.patient.list{pt};
-        options.root = M.ui.groupdir;
-    else
-        [options.root, options.patientname] = fileparts(M.patient.list{pt});
-        options.root = [options.root, filesep];
-    end
+    [options.root, options.patientname] = fileparts(M.patient.list{pt});
+    options.root = [options.root, filesep];
+
+    options = ea_getptopts(fullfile(options.root, options.patientname), options);
 
     fprintf('\nProcessing %s...\n\n', options.patientname);
     try
@@ -914,14 +1053,10 @@ for pt=selection
     catch % no localization present or in wrong format.
         ea_error(['Please localize ',options.patientname,' first.']);
     end
-    options.elmodel=M.elstruct(pt).elmodel;
-    options=ea_resolve_elspec(options);
-    options.prefs=ea_prefs(options.patientname);
     options.d3.verbose='off';
     options.d3.elrendering=1;	% hard code to viz electrodes in this setting.
     options.d3.exportBB=0;	% don't export brainbrowser struct by default
     options.d3.colorpointcloud=0;
-    options.native=0;
 
     options.d3.hlactivecontacts=get(handles.highlightactivecontcheck,'Value');
     options.d3.showactivecontacts=get(handles.showactivecontcheck,'Value');
@@ -952,29 +1087,23 @@ for pt=selection
         options.expstatvat.labels=M.clinical.labels(M.ui.clinicallist);
         options.expstatvat.pt=pt;
     end
-    options.expstatvat.dir=M.ui.groupdir;
-
-    %delete([options.root,options.patientname,filesep,'ea_stats.mat']);
+    options.expstatvat.dir=M.root;
 
     % Step 1: Re-calculate closeness to subcortical atlases.
     options.leadprod = 'group';
     options.patient_list=M.patient.list;
     options.d3.mirrorsides=0;
+
     resultfig=ea_elvis(options,M.elstruct(pt));
 
-    % save scene as matlab figure
-    options.modality=ea_checkctmrpresent(M.patient.list{pt});
-    volumespresent=1;
-    if options.modality(1) % prefer MR
-        options.modality=1;
+    if ~isfield(options.subj, 'norm')
+        ea_cprintf('CmdWinWarnings', 'Running in Miniset mode: %s...\n', options.subj.subjId);
+        volumespresent=0;
+    elseif isempty(dir([options.subj.norm.transform.inverseBaseName, '*']))
+        ea_cprintf('CmdWinWarnings', 'Tranformation not found for %s...\n', options.subj.subjId);
+        volumespresent=0;
     else
-        if options.modality(2)
-            options.modality=2;
-        else
-            options.modality=1;
-            warning(['No MR or CT volumes found in ',M.patient.list{pt},'.']);
-            volumespresent=0;
-        end
+        volumespresent=1;
     end
 
     % Step 2: Re-calculate VAT
@@ -982,7 +1111,7 @@ for pt=selection
         try
             setappdata(resultfig,'curS',M.S(pt));
         catch
-            ea_error(['Stimulation parameters for ',M.patient.list{pt},' are missing.']);
+            ea_error(['Stimulation parameters for ', options.subj.subjId, ' are not set.']);
         end
         vfnames=getappdata(handles.leadfigure,'vatfunctionnames');
 
@@ -999,7 +1128,7 @@ for pt=selection
         options.orignative=options.native; % backup
         options.native=~ea_getprefs('vatsettings.estimateInTemplate'); % see whether VTAs should be directly estimated in template space or not
         if options.native && ~volumespresent
-            warning(['You chose to process VTAs in native space but patient-data cannot be found for ',M.patient.list{pt},'. Proceeding with VTA calculation directly in template space.']);
+            ea_cprintf('CmdWinWarnings', 'Calculating VTA in template space since patient folder %s is incomplete.\n', options.subj.subjId);
             options.native=0;
         end
 
@@ -1018,10 +1147,7 @@ for pt=selection
         if strcmp(M.S(pt).model, 'OSS-DBS (Butenko 2020)')
             if options.prefs.machine.vatsettings.butenko_calcAxonActivation
                 feval(ea_genvat,M.S(pt),options);
-                fprintf('\n');
-                warning('off', 'backtrace');
-                warning('OSS-DBS axon activation mode detect, skipping calc stats for %s!\n', options.patientname);
-                warning('on', 'backtrace');
+                ea_cprintf('CmdWinWarnings', 'OSS-DBS axon activation mode detect, skipping calc stats for %s!\n', options.patientname);
                 continue;
             else
                 [vatCalcPassed, stimparams] = feval(ea_genvat,M.S(pt),options);
@@ -1044,17 +1170,12 @@ for pt=selection
         options.native=options.orignative; % restore
         setappdata(resultfig,'stimparams',stimparams(1,:));
     end
+
     % Calc VAT stats (atlas intersection and volume)
     if all(vatCalcPassed)
         ea_calc_vatstats(resultfig,options);
     else
-        try
-            ea_error(sprintf(['An error occured when building the VTA mesh/headmodel for %s.\n',...
-                'Try re-calculating this VTA with a different atlas or with no atlas.'],...
-                options.patientname));
-        catch
-            continue;
-        end
+        ea_cprintf('CmdWinErrors', 'Failed to calculate VTA for patient %s side %s!\n', options.patientname, num2str(find(~vatCalcPassed)));
     end
 
     % Step 3: Re-calculate connectivity from VAT to rest of the brain.
@@ -1245,47 +1366,12 @@ catch % too many entries..
     set(handles.labelpopup,'Value',1);
     options.labelatlas=1;
 end
-options.writeoutpm=1;
-options.colormap=parula(64);
+options.writeoutpm = 0;
+options.colormap='parula(64)';
 options.d3.write=1;
 options.d3.prolong_electrode=2;
 options.d3.writeatlases=1;
 options.macaquemodus=0;
-
-
-% --- Executes on button press in groupdir_choosebox.
-function groupdir_choosebox_Callback(hObject, eventdata, handles)
-% hObject    handle to groupdir_choosebox (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Save data for previous selected group folder
-if ~strcmp(get(handles.groupdir_choosebox,'String'),'Choose Group Directory') % group dir still not chosen
-    ea_busyaction('on',handles.leadfigure,'group');
-    disp('Saving data...');
-    % save M
-    ea_refresh_lg(handles);
-    M=getappdata(handles.leadfigure,'M');
-    disp('Saving data to disk...');
-    try
-        save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
-    catch
-        warning('Data could not be saved.');
-        % keyboard
-    end
-    disp('Done.');
-    ea_busyaction('off',handles.leadfigure,'group');
-end
-
-% groupdir=ea_uigetdir(ea_startpath,'Choose Group Directory');
-groupdir = uigetdir;
-
-if ~groupdir % user pressed cancel
-    return
-end
-groupdir = [groupdir, filesep];
-
-ea_load_group(handles,groupdir);
 
 
 % --- Executes on button press in opensubgui.
@@ -1434,67 +1520,6 @@ M.ui.mer=get(handles.mercheck,'Value');
 setappdata(gcf,'M',M);
 
 
-% --- Executes on button press in detachbutton.
-function detachbutton_Callback(hObject, eventdata, handles)
-% hObject    handle to detachbutton (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-choice = questdlg({'Would you really like to detach the group data from the single-patient data?','','This means that changes to single-patient reconstructions will not be updated into the group analysis anymore. This should only be done once all patients have been finally localized and an analysis needs to be fixed (e.g. after publication or when working in collaborations).','','Please be aware that this step cannot be undone!'}, ...
-    'Detach Group data from single patient data...', ...
-    'No, abort.','Yes, copy localizations.','Yes, copy localizations and VTAs.','No, abort.');
-% Handle response
-switch choice
-    case 'No, abort.'
-        return
-    case 'Yes, copy localizations.'
-        M=getappdata(gcf,'M');
-
-        ea_dispercent(0,'Detaching group file');
-        for pt=1:length(M.patient.list)
-            [~, ptname] = fileparts(M.patient.list{pt});
-            odir=[M.ui.groupdir,ptname,filesep];
-            ea_mkdir(odir);
-            copyfile([M.patient.list{pt},filesep,'ea_reconstruction.mat'],[odir,'ea_reconstruction.mat']);
-
-            M.patient.list{pt}=ptname;
-
-            ea_dispercent(pt/length(M.patient.list));
-        end
-        ea_dispercent(1,'end');
-
-        M.ui.detached=1;
-        setappdata(gcf,'M',M);
-        ea_refresh_lg(handles);
-    case 'Yes, copy localizations and VTAs.'
-        M=getappdata(gcf,'M');
-
-        ea_dispercent(0,'Detaching group file');
-        for pt=1:length(M.patient.list)
-            [~, ptname] = fileparts(M.patient.list{pt});
-            odir=[M.ui.groupdir,ptname,filesep];
-            ea_mkdir([odir,'stimulations']);
-            copyfile([M.patient.list{pt},filesep,'ea_reconstruction.mat'],[odir,'ea_reconstruction.mat']);
-            if exist([M.patient.list{pt},filesep,'stimulations',filesep,ea_nt(0),'gs_',M.guid], 'dir')
-                ea_mkdir([odir,'stimulations',filesep,ea_nt(0)])
-                copyfile([M.patient.list{pt},filesep,'stimulations',filesep,ea_nt(0),'gs_',M.guid],[odir,'stimulations',filesep,ea_nt(0),'gs_',M.guid]);
-            end
-            if exist([M.patient.list{pt},filesep,'stimulations',filesep,ea_nt(1),'gs_',M.guid], 'dir')
-                ea_mkdir([odir,'stimulations',filesep,ea_nt(1)])
-                copyfile([M.patient.list{pt},filesep,'stimulations',filesep,ea_nt(1),'gs_',M.guid],[odir,'stimulations',filesep,ea_nt(1),'gs_',M.guid]);
-            end
-
-            M.patient.list{pt}=ptname;
-
-            ea_dispercent(pt/length(M.patient.list));
-        end
-        ea_dispercent(1,'end');
-
-        M.ui.detached=1;
-        setappdata(gcf,'M',M);
-        ea_refresh_lg(handles);
-end
-
-
 % --- Executes on selection change in normregpopup.
 function normregpopup_Callback(hObject, eventdata, handles)
 % hObject    handle to normregpopup (see GCBO)
@@ -1531,17 +1556,26 @@ function leadfigure_CloseRequestFcn(hObject, eventdata, handles)
 % Hint: delete(hObject) closes the figure
 
 ea_busyaction('on',gcf,'group');
-if ~strcmp(get(handles.groupdir_choosebox,'String'),'Choose Group Directory') % group dir still not chosen
+if ~strcmp(handles.groupdir_choosebox.String,'Choose Dataset Directory') % group dir still not chosen
     disp('Saving data...');
     % save M
     ea_refresh_lg(handles);
     M=getappdata(hObject,'M');
     disp('Saving data to disk...');
-    try
-        save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
-    catch
-        warning('Data could not be saved.');
-        keyboard
+    groupAnalysisFile = ea_getGroupAnalysisFile(handles.groupdir_choosebox.String);
+    if ~isempty(groupAnalysisFile)
+        save(groupAnalysisFile, 'M', '-v7.3');
+    else
+        if ~isfolder(handles.groupdir_choosebox.String)
+            ea_cprintf('CmdWinErrors', 'Failed to save the group analysis file. Analysis folder is missing:\n%s\n', handles.groupdir_choosebox.String);
+        else
+            [~, datasetName] = fileparts(fileparts(fileparts(fileparts(erase(handles.groupdir_choosebox.String, filesep + lineBoundary("end"))))));
+            if ~isempty(regexp(datasetName, '[\W_]', 'once'))
+                ea_cprintf('CmdWinErrors', 'Could not get the group analysis file. Dataset folder name should only contain alphanumeric characters!\n');
+            else
+                ea_cprintf('CmdWinErrors', 'Could not get the group analysis file.\n')
+            end
+        end
     end
     disp('Done.');
     disp('Bye for now.');
@@ -1568,11 +1602,13 @@ clc;
 M=getappdata(gcf,'M');
 
 ea_busyaction('on',gcf,'group');
+
 % set options
 options=ea_setopts_local(handles);
+
 % set pt specific options
-options.root=[fileparts(fileparts(get(handles.groupdir_choosebox,'String'))),filesep];
-[~,options.patientname]=fileparts(fileparts(get(handles.groupdir_choosebox,'String')));
+[options.root, options.patientname] = fileparts(handles.groupdir_choosebox.String);
+options.root = [options.root, filesep];
 
 options.numcontacts=size(M.elstruct(1).coords_mm{1},1);
 options.elmodel=M.elstruct(1).elmodel;
@@ -1613,7 +1649,7 @@ options.modality=3; % use template image
 options=ea_amendtoolboxoptions(options);
 
 if strcmp(options.atlasset,'Use none')
-    options.d2.writeatlases=1;
+    options.d2.writeatlases=0;
 else
     options.d2.writeatlases=1;
 end
@@ -1640,11 +1676,11 @@ if options.d3.showisovolume || options.expstatvat.do % regressors be used - iter
             end
         end
 
-        if ~strcmp(get(handles.groupdir_choosebox,'String'),'Choose Group Directory') % group dir still not chosen
+        if ~strcmp(handles.groupdir_choosebox.String,'Choose Dataset Directory') % group dir still not chosen
             ea_refresh_lg(handles);
             disp('Saving data...');
             % save M
-            save([get(handles.groupdir_choosebox,'String'),'LEAD_groupanalysis.mat'],'M','-v7.3');
+            save(ea_getGroupAnalysisFile(handles.groupdir_choosebox.String),'M','-v7.3');
             disp('Done.');
         end
 
@@ -1688,21 +1724,21 @@ options.native=0;
 ea_spec2dwrite(options);
 
 
-% --- Executes on selection change in recentpts.
-function recentpts_Callback(hObject, eventdata, handles)
-% hObject    handle to recentpts (see GCBO)
+% --- Executes on selection change in recentgroups.
+function recentgroups_Callback(hObject, eventdata, handles)
+% hObject    handle to recentgroups (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-% Hints: contents = cellstr(get(hObject,'String')) returns recentpts contents as cell array
-%        contents{get(hObject,'Value')} returns selected item from recentpts
+% Hints: contents = cellstr(get(hObject,'String')) returns recentgroups contents as cell array
+%        contents{get(hObject,'Value')} returns selected item from recentgroups
 ea_busyaction('on',handles.leadfigure,'group');
-ea_rcpatientscallback(handles, 'groups');
+ea_recentcallback(handles, 'groups');
 ea_busyaction('off',handles.leadfigure,'group');
 
 
 % --- Executes during object creation, after setting all properties.
-function recentpts_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to recentpts (see GCBO)
+function recentgroups_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to recentgroups (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -1728,8 +1764,19 @@ function exportstats_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 M = getappdata(gcf,'M');
-[file, path] = uiputfile('*.mat','Export DBS Stats as...', [M.root, 'ea_stats_export.mat']);
+exportFile = strrep(ea_getGroupAnalysisFile(M.root), '.mat', '_desc-stats_export.mat');
+[file, path] = uiputfile('*.mat','Export DBS Stats as...', exportFile);
 if file % make sure user didnt press cancel
     ea_lg_exportstats(M, [path, file]);
     fprintf('\nDBS Stats exported to:\n%s\n\n', [path, file]);
 end
+
+
+
+% --- Executes on button press in minisetbutton.
+function minisetbutton_Callback(hObject, eventdata, handles)
+% hObject    handle to minisetbutton (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+M = getappdata(gcf,'M');
+ea_generate_min_dataset(M);

@@ -110,6 +110,9 @@ jit = (rand(size(X)) - 0.5) * wdth;
 
 % info for making boxplot
 quartiles   = quantile(X, [0.25 0.75 0.5]);
+if all(quartiles == quartiles(1))
+    return
+end
 iqr         = quartiles(2) - quartiles(1);
 Xs          = sort(X);
 whiskers(1) = min(Xs(Xs > (quartiles(1) - (1.5 * iqr))));
@@ -124,7 +127,7 @@ else
 end
 
 h{2} = scatter(X, drops_pos);
-h{2}.SizeData = 10;
+h{2}.SizeData = 30;
 h{2}.MarkerFaceColor = color;
 h{2}.MarkerEdgeColor = 'none';
 

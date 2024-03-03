@@ -18,19 +18,12 @@ if ~exist('verbose', 'var')
     verbose = 1;
 end
 
-input = ea_path_helper(input);
-reference = ea_path_helper(reference);
-
 basedir = [fileparts(mfilename('fullpath')), filesep];
-if ispc
-    FLIRT = ea_path_helper([basedir, 'flirt.exe']);
-else
-    FLIRT = [basedir, 'flirt.', computer('arch')];
-end
+FLIRT = ea_getExec([basedir, 'flirt'], escapePath = 1);
 
 cmd = [FLIRT, ...
-    ' -in ', input, ...
-    ' -ref ', reference, ...
+    ' -in ', ea_path_helper(input), ...
+    ' -ref ', ea_path_helper(reference), ...
     ' -applyxfm -usesqform -interp ', interp, ...
     ' -out ', output];
 
@@ -38,9 +31,4 @@ if verbose
     fprintf('Reslicing %s to match %s ...\n', input, reference);
 end
 
-setenv('FSLOUTPUTTYPE','NIFTI');
-if ~ispc
-    system(['bash -c "', cmd, '"']);
-else
-    system(cmd);
-end
+ea_runcmd(cmd, env='FSLOUTPUTTYPE=NIFTI');

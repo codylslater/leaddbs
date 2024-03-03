@@ -30,7 +30,7 @@ if ~isa(handles,'matlab.ui.Figure')
     togglestates.template=get(handles.templatepopup,'String');
     togglestates.template=togglestates.template{get(handles.templatepopup,'Value')};
     togglestates.tinvert=0;
-    togglestates.customfile=getappdata(resultfig,'customfile');
+    togglestates.customfile=getappdata(handles.acontrolfig,'customfile');
 end
 setappdata(resultfig,'togglestates',togglestates); % also store toggle data in resultfig.
 
@@ -39,9 +39,7 @@ try
 catch
     options=struct;
 end
-ea_anatomyslices(resultfig,...
-    togglestates,...
-    options,handles);
+ea_anatomyslices(resultfig, togglestates, options, handles);
 
 nativemni = ea_getnativemni;
 if togglestates.refreshcuts && nativemni==1

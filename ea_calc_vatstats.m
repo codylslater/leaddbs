@@ -5,7 +5,6 @@ function [PL]=ea_calc_vatstats(resultfig,options,hmchanged)
 % Copyright (C) 2014 Charite University Medicine Berlin, Movement Disorders Unit
 % Andreas Horn
 
-PL.ht=uitoolbar(resultfig);
 set(0,'CurrentFigure',resultfig)
 
 ea_dispt('Visualizing VTA...');
@@ -23,30 +22,27 @@ if ~exist('hmchanged','var')
     hmchanged=1;
 end
 
+stimDir = [options.subj.stimDir, filesep, ea_nt(options), S.label];
+fileBasePath = [stimDir, filesep, 'sub-', options.subj.subjId, '_sim-'];
+
 % clean downstreamfiles if necessary
 if hmchanged
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_right.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_right.nii'));
+    ea_delete([fileBasePath, 'binary_model-*_hemi-R_hemidesc-FlippedFromLeft.nii']);
+    ea_delete([fileBasePath, 'binary_model-*_hemi-L_hemidesc-FlippedFromRight.nii']);
 
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_efield_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_efield_right.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_efield_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_efield_right.nii'));
+    ea_delete([fileBasePath, 'efield_model-*_hemi-R_hemidesc-FlippedFromLeft.nii']);
+    ea_delete([fileBasePath, 'efield_model-*_hemi-L_hemidesc-FlippedFromRight.nii']);
 
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_efield_gauss_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'bihem_vat_efield_gauss_right.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_efield_gauss_left.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'fl_vat_efield_gauss_right.nii'));
+    ea_delete([fileBasePath, 'efieldgauss_model-*_hemi-R_hemidesc-FlippedFromLeft.nii']);
+    ea_delete([fileBasePath, 'efieldgauss_model-*_hemi-L_hemidesc-FlippedFromRight.nii']);
 
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_dMRI.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_dMRI_l.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_dMRI_r.nii'));
+    ea_delete([fileBasePath, 'binary_model-*_seed-dMRI.nii']);
+    ea_delete([fileBasePath, 'binary_model-*_seed-dMRI_hemi-L.nii']);
+    ea_delete([fileBasePath, 'binary_model-*_seed-dMRI_hemi-R.nii']);
 
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_fMRI.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_fMRI_l.nii'));
-    ea_delete(fullfile(options.root,options.patientname,'stimulations',ea_nt(options),S.label,'vat_seed_compound_fMRI_r.nii'));
+    ea_delete([fileBasePath, 'binary_model-*_seed-fMRI.nii']);
+    ea_delete([fileBasePath, 'binary_model-*_seed-fMRI_hemi-L.nii']);
+    ea_delete([fileBasePath, 'binary_model-*_seed-fMRI_hemi-R.nii']);
 end
 
 %prepare statvat exports once if needed.
@@ -68,7 +64,7 @@ for but=1:length(togglenames)
     expand=1;
     if isempty(eval(togglenames{but}))
         %eval([togglenames{but},'=repmat(1,expand,length(options.sides));']);
-        %changed to max, as to include for sure the array as large as the maximum side used, 
+        %changed to max, as to include for sure the array as large as the maximum side used,
         %as this code was intended for the bilateral cases
         %maybe will have to change it to minimum have two elements, to always include at least R and L sides
         %For example, before if the side was only Left, the multiplier would have been only 1
@@ -79,8 +75,6 @@ for but=1:length(togglenames)
 end
 clear expand
 
-load([options.root,options.patientname,filesep,'ea_stats']);
-
 % assign the place where to write stim stats into struct
 
 if isfield(options,'groupmode')
@@ -89,7 +83,12 @@ if isfield(options,'groupmode')
     end
 end
 
-[ea_stats,thisstim]=ea_assignstimcnt(ea_stats,S);
+try
+    load(options.subj.stats, 'ea_stats');
+catch
+    ea_stats = struct;
+end
+[ea_stats, thisstim] = ea_assignstimcnt(ea_stats,S);
 
 if (isfield(VAT{1},'VAT') && isstruct(VAT{1}.VAT)) || ((length(VAT)>1) && isfield(VAT{2},'VAT') && isstruct(VAT{2}.VAT)) % e.g. simbio model used
     vat=1;
@@ -110,9 +109,9 @@ for iside=1:length(options.sides)
     side=options.sides(iside);
     switch side
         case 1
-            sidec='right';
+            sidec='R';
         case 2
-            sidec='left';
+            sidec='L';
     end
     for vat=1:length(VAT{side}.VAT)
         if ~exist('K','var') % e.g. maedler model used
@@ -161,18 +160,18 @@ for iside=1:length(options.sides)
 
             if options.writeoutstats
                 ea_dispt('Writing out stats...');
-                load([options.root,options.patientname,filesep,'ea_stats']);
                 ea_stats.stimulation(thisstim).label=S.label;
                 ea_stats.stimulation(thisstim).vat(side,vat).amp=S.amplitude{side};
                 ea_stats.stimulation(thisstim).vat(side,vat).label=S.label;
                 ea_stats.stimulation(thisstim).vat(side,vat).contact=vat;
                 ea_stats.stimulation(thisstim).vat(side,vat).side=side;
 
+                modelLabel = ea_simModel2Label(S.model);
+
                 % VTA volume and efield volume
                 ea_stats.stimulation(thisstim).vat(side,vat).volume=stimparams(1,side).volume(vat);
-                if exist(ea_niigz([options.root,options.patientname,filesep,'stimulations',filesep,ea_nt(options),S.label,filesep,'vat_efield_',sidec]),'file')
-                    vefieldfile=ea_niigz([options.root,options.patientname,filesep,'stimulations',filesep,ea_nt(options),S.label,filesep,'vat_efield_',sidec]);
-                    Vefield=load_untouch_nii(vefieldfile);
+                if isfile([fileBasePath, 'efield_model-', modelLabel, '_hemi-', sidec,  '.nii'])
+                    vefieldfile = [fileBasePath, 'efield_model-', modelLabel, '_hemi-', sidec,  '.nii'];
                 end
 
                 atlasName = options.atlasset;
@@ -188,14 +187,14 @@ for iside=1:length(options.sides)
                                     atlasfile = [ea_space([],'atlases'),options.atlasset,filesep,'lh',filesep,atlases.names{atlas}];
                                 case 3 % both-sides atlas composed of 2 files.
                                     switch sidec
-                                        case 'right'
+                                        case {'right', 'R'}
                                             atlasfile = [ea_space([],'atlases'),options.atlasset,filesep,'rh',filesep,atlases.names{atlas}];
-                                        case 'left'
+                                        case {'left', 'L'}
                                             atlasfile = [ea_space([],'atlases'),options.atlasset,filesep,'lh',filesep,atlases.names{atlas}];
                                     end
-                                case 4 % mixed atlas (one file with both sides information).
+                                case 4 % mixed atlas (one file with one cluster on each hemisphere).
                                     atlasfile = [ea_space([],'atlases'),options.atlasset,filesep,'mixed',filesep,atlases.names{atlas}];
-                                case 5 % midline atlas (one file with both sides information.
+                                case 5 % midline atlas (one file with one cluster in total).
                                     atlasfile = [ea_space([],'atlases'),options.atlasset,filesep,'midline',filesep,atlases.names{atlas}];
                             end
 
@@ -209,7 +208,7 @@ for iside=1:length(options.sides)
                                 continue;
                             end
 
-                            vatfile = ea_niigz([options.root,options.patientname,filesep,'stimulations',filesep,ea_nt(options),S.label,filesep,'vat_',sidec]);
+                            vatfile = [fileBasePath, 'binary_model-', modelLabel, '_hemi-', sidec,  '.nii'];
                             [~, mm_overlap, normVTAOverlap, normAtlasOverlap, mm_vta, mm_atlas]  = ea_vta_overlap(vatfile, atlasfile, sidec);
 
                             % Overriding the volume of the vat with the one
@@ -220,7 +219,7 @@ for iside=1:length(options.sides)
                             ea_stats.stimulation(thisstim).vat(side,vat).AtlasIntersection(atlas) = mm_overlap;
                             ea_stats.stimulation(thisstim).vat(side,vat).nAtlasIntersection(atlas) = normVTAOverlap; % Overlap in respect of VAT (ratio [0-1]);
                             ea_stats.stimulation(thisstim).vat(side,vat).nWithinAtlasIntersection(atlas) = normAtlasOverlap; % Overlap in respect of atlas (ratio [0-1])
-                            
+
                             % now also add efield overlap:
                             if exist('vefieldfile','var')
                                 [overlap, normOverlap, efieldSum]  = ea_efield_overlap(vefieldfile,atlasfile,sidec);
@@ -237,14 +236,19 @@ for iside=1:length(options.sides)
                     end
                 end
 
-                save([options.root,options.patientname,filesep,'ea_stats'],'ea_stats','-v7.3');
+                save(options.subj.stats, 'ea_stats', '-v7.3');
             end
         end
     end
 
     try
-        vatbutton(side)=uitoggletool(PL.ht,'CData',ea_get_icn('vat'),'TooltipString','Volume of activated tissue','OnCallback',{@objvisible,PL.vatsurfs(side,:),resultfig,'vaton',[],side,1},'OffCallback',{@objvisible,PL.vatsurfs(side,:),resultfig,'vaton',[],side,0},'State',getstate(vaton(side)));
-        quivbutton(side)=uitoggletool(PL.ht,'CData',ea_get_icn('quiver'),'TooltipString','E-field','OnCallback',{@objvisible,PL.quiv(side),resultfig,'quivon',[],side,1},'OffCallback',{@objvisible,PL.quiv(side),resultfig,'quivon',[],side,0},'State',getstate(quivon(side)));
+        if stimparams(side).volume
+            if ~isfield(PL, 'ht')
+                PL.ht=uitoolbar(resultfig);
+            end
+            vatbutton(side)=uitoggletool(PL.ht,'CData',ea_get_icn('vat'),'TooltipString','Volume of activated tissue','OnCallback',{@objvisible,PL.vatsurfs(side,:),resultfig,'vaton',[],side,1},'OffCallback',{@objvisible,PL.vatsurfs(side,:),resultfig,'vaton',[],side,0},'State',getstate(vaton(side)));
+            quivbutton(side)=uitoggletool(PL.ht,'CData',ea_get_icn('quiver'),'TooltipString','E-field','OnCallback',{@objvisible,PL.quiv(side),resultfig,'quivon',[],side,1},'OffCallback',{@objvisible,PL.quiv(side),resultfig,'quivon',[],side,0},'State',getstate(quivon(side)));
+        end
     end
 end
 

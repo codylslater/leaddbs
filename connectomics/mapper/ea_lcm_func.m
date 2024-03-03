@@ -12,6 +12,11 @@ if iscell(options.lcm.seeds)
    end
 end
 
+try
+    exportgmtc=evalin('base','exporttc');
+catch
+    exportgmtc=options.lcm.func.exportgmtc;
+end
 cmd = ea_lcm_resolvecmd(options.lcm.cmd);
 [sfile]=ea_handleseeds(options.lcm.seeds);
 if strcmp(cmd,'seed')
@@ -52,10 +57,10 @@ for run=1:chunk:length(sfile)
             subset=cname(delim+1:end);
             cname=cname(1:delim-1);
         end
-        d=load([ea_getconnectomebase,'fMRI',filesep,cname,filesep,'dataset_info.mat']);
+        dataset=loadjson([ea_getconnectomebase,'fMRI',filesep,cname,filesep,'dataset_info.json']);
         switch cmd
             case 'seed'
-                switch d.dataset.type
+                switch dataset.type
                     case 'fMRI_matrix'
                         cs_fmri_conseed_seed_matrix(ea_getconnectomebase,...
                             options.lcm.func.connectome,...
@@ -74,7 +79,7 @@ for run=1:chunk:length(sfile)
                             options.lcm.omask);
                 end
             case 'pseed'
-                 switch d.dataset.type
+                 switch dataset.type
                     case 'fMRI_matrix'
                         ea_error('Command partial seed is not supported for matrix type datasets.')
                     case 'fMRI_timecourses'
@@ -87,9 +92,12 @@ for run=1:chunk:length(sfile)
                             options.lcm.omask);
                  end
             case {'matrix','pmatrix'}
-                switch d.dataset.type
+                switch dataset.type
                     case 'fMRI_matrix'
-                        ea_error('Command [partial] matrix is not supported for matrix type datasets.')
+                        cs_fmri_conseed_matrix_matrix(ea_getconnectomebase,...
+                            options.lcm.func.connectome, ...
+                            tsfile,...
+                            options.lcm.odir);
                     case 'fMRI_timecourses'
                         cs_fmri_conseed_matrix(ea_getconnectomebase,...
                             options.lcm.func.connectome,...
@@ -97,12 +105,12 @@ for run=1:chunk:length(sfile)
                             cmd,...
                             '0',...
                             options.lcm.odir,...
-                            options.lcm.func.exportgmtc);
+                            exportgmtc);
                 end
             case 'pmap'
-                switch d.dataset.type
+                switch dataset.type
                     case 'fMRI_matrix'
-                        ea_error('Command partial map is not supported for matrix type datasets.')
+                        ea_error('Command partial map is not supported for matrix type datasets.');
                     case 'fMRI_timecourses'
                         cs_fmri_conseed_pmap(ea_getconnectomebase,...
                             options.lcm.func.connectome,...

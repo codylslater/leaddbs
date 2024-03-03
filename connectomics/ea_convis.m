@@ -274,7 +274,7 @@ else % use fiberset
     targetsfile.img(round(targetsfile.img)==get(handles.matseed,'Value'))=0;
     thresh=get(handles.matthresh,'String');
     options.writeoutstats=0;
-    options.writeoutpm=1;
+    options.writeoutpm = 0;
 
 
     [changedstates,ret]=ea_checkfschanges(resultfig,fibersfile,seed,targetsfile,thresh,'mat');
@@ -569,8 +569,8 @@ else
         vatcell{vt}=vatdir(vt).name;
     end
 
-    set(handles.rvatcheck,'Enable', ea_getonofftruefalse(ismember('vat_right.nii',vatcell)));
-    set(handles.lvatcheck,'Enable', ea_getonofftruefalse(ismember('vat_left.nii',vatcell)));
+    set(handles.rvatcheck,'Enable', ea_getonofftruefalse(any(endsWith(vatcell, '_sim-binary_model-simbio_hemi-R.nii'))));
+    set(handles.lvatcheck,'Enable', ea_getonofftruefalse(any(endsWith(vatcell, '_sim-binary_model-simbio_hemi-L.nii'))));
     if strcmp(get(handles.rvatcheck,'Enable'),'off')
         set(handles.rvatcheck,'Value', 0);
     end
